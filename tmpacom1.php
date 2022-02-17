@@ -48,7 +48,7 @@ class tmpacom1 extends Module
 
     public function hookactionPaymentConfirmation(array $params)
     {
-
+        /* recuperation des information du client er produits */
         $id_order = $params['id_order'];
         $order = new Order((int) $id_order);
         $customer = new Customer($order->id_customer);
@@ -80,7 +80,7 @@ class tmpacom1 extends Module
         $bills_total_TTC = round($order->total_paid, 2);
         $sale_date = $order->date_add;
 
-        /* declaration et ecriture des titres des colonnes */
+        /* declaration et ecriture des titres des colonnes pour elvetis */
 
         $elvetis_column_title = array(
             'Nom du client', 'Adresse 1', 'Adresse2', 'Code postal', 'Ville', 'Adresse email',
@@ -88,8 +88,8 @@ class tmpacom1 extends Module
             'Mode de paiement', 'Pays ', 'Code transport', 'Filler', 'Remise coupon', 'Adresse complémentaire', 'Commentaire sur transport', 'S = livraison le Samedi', 'Code produit Colissimo',
             'Code postal Export', 'N° téléphone Export', 'CIP (code produit)', 'Quantité', 'Prix unitaire HT', 'Prix unitaire TTC'
         );
-
-
+        $pharmagest_array_product = array();
+        /* boucle permettant de recuperer les produits de la commande */
         foreach ($products as $product) {
 
             /* information produit */
@@ -101,7 +101,7 @@ class tmpacom1 extends Module
             $product_unit_TTC = round($product['unit_price_tax_incl'], 2);
             $tax = $product["tax_rate"];
 
-            /* recuperation de l'isbn parent */
+            /* recuperation de l'isbn parent du produits */
             $product_isbn = $product['isbn'];
 
             /* la valeur 1 correspond a l'organisme elvetis */
@@ -128,10 +128,10 @@ class tmpacom1 extends Module
                 $elvetis_array_temp[array_search('Prix unitaire HT', $elvetis_column_title)] = $product_unit_HT;
                 $elvetis_array_temp[array_search('Prix unitaire TTC', $elvetis_column_title)] = $product_unit_TTC;
 
-                
 
 
-                /* remplissage de valeur vide par un epsace pour garder toute les colonnesdu tabelau*/
+
+                /* remplissage de valeur vide par un epsace pour garder toute les colonnes du tabelau*/
                 $first_keys = array_key_first($elvetis_array_temp);
                 $last_keys = max(array_keys($elvetis_array_temp));
 
@@ -140,108 +140,36 @@ class tmpacom1 extends Module
                         $elvetis_array_temp[$i] = "";
                     }
                 }
+
                 /* ordonner le tableau*/
-                echo "<pre>";
-                print_r($elvetis_array_temp);
-                echo "</pre>";
                 ksort($elvetis_array_temp);
 
                 $elvetis_array_final[] = array_combine($elvetis_column_title, $elvetis_array_temp);
+            } else if ($product_isbn == 2) {
+                
+                $pharmagest_array_product['lignevente'][] = [
+                    
+                    'codeproduit' => $product_reference,
+                    'designation_produit' => ['_cdata' => $product_name],
+                    'quantite' => $product_quantity,
+                    'remise' => 'z',
+                    'prix_brut' => $product_unit_HT,
+                    'prix_net' => $product_unit_TTC,
+                    'tauxtva' => $tax
 
-            } 
-            else if ($product_isbn == 2) {
-            
-                $pharmagest_array_final[] = [
-                    'lignevente' => [
-                        '_attributes' => ['numero_lignevente' => $product_id],
-                        'codeproduit' => $product_reference,
-                        'designation_produit' => [
-                            '_cdata' => $product_name,
-                        ],
-                        'quantite' => $product_quantity,
-                        'remise' => 'z',
-                        'prix_brut' => $product_unit_TTC,
-                        'prix_net' => $product_unit_HT,
-                        'tauxtva' => $tax,
-                    ]
                 ];
-                echo "<pre>";
-                print_r($pharmagest_array_final);
-                echo "</pre>";
-            }        
-            /*if (!empty($pharmagest_array_final)) {
-                $exoneration_tva = 0;
-                if ($tax == 0) : $exoneration_tva = 1;
-                endif;
-                $test2 = [
-                    'beldemande' => [
-                        '_atributes' => ['version' => '1.6', 'date' => $sale_date, 'format' => 'INFACT', 'json' => 'false'],
-                        'infact' => [
-                            'vente' => [
-                                '_atributes' => ['num_pharma' => 'testss2i', 'numero_vente' => $bills_id],
-                                'client' => [
-                                    '_atributes' => ['client' => $customer_id],
-                                    'nom' => $customer_lastname,
-                                    'prenom' => $customer_firstname,
-                                    'datenaissance' => $customer_birth,
-                                    'adresse_facturation' => [
-                                        'rue1' => [
-                                            '_cdata' => $customer_adress1,
-                                        ],
-                                        'codepostal' => [
-                                            '_cdata' => $customer_postcode,
-                                        ],
-                                        'ville' => [
-                                            '_cdata' => $customer_city,
-                                        ],
-                                        'pays' => [
-                                            '_cdata' => $customer_country,
-                                        ],
-                                        'tel' => [
-                                            '_cdata' => $customer_phone1,
-                                        ],
-                                        'email' => ['_cdata' =>
-                                        $customer_email,],
-                                    ],
-                                    'sexe' => $customer_gender,
-                                ],
-                                'date_vente' => $sale_date,
-                                'montant_port_ht' => $bills_total_HT,
-                                'tauxtva_port' => $tax,
-                                'total_ttc' => $bills_total_TTC,
-                                'exoneration_tva' => $exoneration_tva,
-                                $pharmagest_array_final,
-                            ]
-                        ]
-                    ]
-                ];
-                function array_to_xml($data, &$xml_data, $bills_id)
-                {
-                    foreach ($data as $key => $value) {
-                        if (is_array($value)) {
-                            if (is_numeric($key)) {
-                                $key = 'item' . $key;
-                            }
-                            if ($key == "vente") {
-                                $subnode = $xml_data->addChild($key);
-                                $subnode->addAttribute('num_pharma','testss2i');
-                                $subnode->addAttribute('numero_vente',''.$bills_id.'');
-                                array_to_xml($value, $subnode, $bills_id);
-                            }
-                            else{
-                                $subnode = $xml_data->addChild($key);
-                                array_to_xml($value, $subnode, $bills_id);
-                            }
-                        } else {
-                            $xml_data->addChild("$key", htmlspecialchars("$value"));
-                        }
-                    }
-                }
-                $pharmagest_xml = new SimpleXMLElement('<?xml version="1.0"?><beldemande version="1.6" date="'.$sale_date.'" format="INFACT" json="false"></beldemande>');
-                array_to_xml($pharmagest, $pharmagest_xml, $bills_id);
-                $xmlfile = ArrayToXml::convert($test2);
-            }*/
+
+                $pharmagest_array_product['lignevente'][max(array_keys($pharmagest_array_product['lignevente']))] = array_merge(
+                    $pharmagest_array_product['lignevente'][max(array_keys($pharmagest_array_product['lignevente']))],
+                    array('_attributes' => [
+                        'numero_lignevente' => intval(max(array_keys($pharmagest_array_product['lignevente']))+1),
+                    ])
+                    );
+                
+            }
         }
+
+        /* si le tableau elvetis n'est pas vide on ecrit dans un fichier csv */
         if (!empty($elvetis_array_final)) {
             $csvfile = __DIR__ . '/tmp/CDE_' . $bills_id . '.csv';
             $file = fopen($csvfile, 'w');
@@ -252,10 +180,112 @@ class tmpacom1 extends Module
             }
             fclose($file);
         }
-        if(!empty($pharmagest_array_final))
-        {
+
+
+        if (!empty($pharmagest_array_product)) {
+
+            /* ont verifie si une exoneration de tva est presente 
+               si il n'ya aucune tax alors une exoneration est effectuer (1) */
+            $exoneration_tva = 0;
+            if ($tax == 0) : $exoneration_tva = 1;
+            endif;
+            $sale_date = date('Y-m-d\TH:i:s');
+            /* tableau contenant les infos de livraison de pharmagest */
+            $pharmagest_array_final = [
+                'infact' => [
+                    'vente' => [
+                        '_attributes' => [
+                            'num_pharma' => 'testss2i',
+                            'numero_vente' => $bills_id,
+                        ],
+                        'client' => [
+                            '_attributes' => [
+                                'client_id' => $customer_id,
+                            ],
+                            'nom' => $customer_lastname,
+                            'prenom' => $customer_firstname,
+                            'datenaissance' => $customer_birth,
+                            'adresse_facturation' => [
+                                'rue1' => [
+                                    '_cdata' => $customer_adress1,
+                                ],
+                                'codepostal' => [
+                                    '_cdata' => $customer_postcode,
+                                ],
+                                'ville' => [
+                                    '_cdata' => $customer_city,
+                                ],
+                                'pays' => [
+                                    '_cdata' => $customer_country,
+                                ],
+                                'tel' => [
+                                    '_cdata' => $customer_phone1,
+                                ],
+                                'email' => ['_cdata' =>
+                                $customer_email,],
+                            ],
+                            'sexe' => $customer_gender,
+                        ],
+                        'date_vente' => $sale_date,
+                        'montant_port_ht' => $bills_total_HT,
+                        'tauxtva_port' => $tax,
+                        'total_ttc' => $bills_total_TTC,
+                        'exoneration_tva' => $exoneration_tva,
+                    ]
+                ]
+            ];
             
+            /* on integre notre tableau de produit dans notre tableau livraison */
+            $pharmagest_array_final = array_merge($pharmagest_array_final['infact']['vente'], $pharmagest_array_product);
+
+            /* root de notre fichier xml */
+            $xml_root = [
+                'rootElementName' => 'beldemande',
+                '_attributes' => [
+                    'version' => '1.6',
+                    'date' => substr($sale_date, 0, -9),
+                    'format' => 'INFACT',
+                    'json' => 'false'
+                ],
+            ];
+
+            /*$result = ArrayToXml::convert($pharmagest_array_final, [
+                'rootElementName' => 'beldemande',
+                '_attributes' => [
+                    'version' => '1.6',
+                    'date' => $sale_date,
+                    'format' => 'INFACT',
+                    'json' => 'false'
+                ],
+            ], true, 'UTF-8');*/
+
+            /* conversion de notre array en fichier xml */
+            $pharmagest_array_to_xml = new ArrayToXml($pharmagest_array_final, $xml_root);
+
+            // indentation de notre fichier xml
+            $pharmagest_xml = $pharmagest_array_to_xml->prettify()->toXml();
+
+            var_dump($pharmagest_xml);
+
+            /* ecriture de notre xml dans un fichier xml */
+            $filename = __DIR__ . '/tmp/test.xml';
+            if (is_writable($filename)) {
+
+                if (!$fp = fopen($filename, 'a')) {
+                    echo "Impossible d'ouvrir le fichier ($filename)";
+                    exit;
+                }
+
+                if (fwrite($fp, $pharmagest_xml) === FALSE) {
+                    echo "Impossible d'écrire dans le fichier ($filename)";
+                    exit;
+                }
+                echo "L'écriture de ($pharmagest_xml) dans le fichier ($filename) a réussi";
+                fclose($fp);
+            } else {
+                echo "Le fichier $filename n'est pas accessible en écriture.";
+            }
+            die;
         }
-        die;
     }
 }
