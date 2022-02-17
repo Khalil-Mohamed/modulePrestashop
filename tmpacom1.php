@@ -56,6 +56,26 @@ class tmpacom1 extends Module
         $adresses = new CustomerAddress($order->id_address_delivery);
         $gender = new Gender($customer->id_gender);
 
+        echo "<pre>";
+        print_r($order);
+        echo "<pre>";
+
+        echo "<pre>";
+        print_r($customer);
+        echo "<pre>";
+
+        echo "<pre>";
+        print_r($products);
+        echo "<pre>";
+
+        echo "<pre>";
+        print_r($adresses);
+        echo "<pre>";
+
+        echo "<pre>";
+        print_r($gender);
+        echo "<pre>";
+
         /* information client */
         $customer_lastname = $customer->lastname;
         $customer_firstname = $customer->firstname;
@@ -146,13 +166,13 @@ class tmpacom1 extends Module
 
                 $elvetis_array_final[] = array_combine($elvetis_column_title, $elvetis_array_temp);
             } else if ($product_isbn == 2) {
-                
+
                 $pharmagest_array_product['lignevente'][] = [
-                    
+
                     'codeproduit' => $product_reference,
                     'designation_produit' => ['_cdata' => $product_name],
                     'quantite' => $product_quantity,
-                    'remise' => 'z',
+                    'remise' => 0,
                     'prix_brut' => $product_unit_HT,
                     'prix_net' => $product_unit_TTC,
                     'tauxtva' => $tax
@@ -162,23 +182,52 @@ class tmpacom1 extends Module
                 $pharmagest_array_product['lignevente'][max(array_keys($pharmagest_array_product['lignevente']))] = array_merge(
                     $pharmagest_array_product['lignevente'][max(array_keys($pharmagest_array_product['lignevente']))],
                     array('_attributes' => [
-                        'numero_lignevente' => intval(max(array_keys($pharmagest_array_product['lignevente']))+1),
+                        'numero_lignevente' => intval(max(array_keys($pharmagest_array_product['lignevente'])) + 1),
                     ])
-                    );
-                
+                );
             }
         }
 
         /* si le tableau elvetis n'est pas vide on ecrit dans un fichier csv */
         if (!empty($elvetis_array_final)) {
-            $csvfile = __DIR__ . '/tmp/CDE_' . $bills_id . '.csv';
+
+            $csv_file_name = 'CDE_' . $bills_id . '.csv';
+            $csvfile = __DIR__ . '/tmp/' . $csv_file_name;
             $file = fopen($csvfile, 'w');
             fwrite($file, "\xEF\xBB\xBF");
             fputcsv($file, $elvetis_column_title, ";");
             foreach ($elvetis_array_final as $line => $value) {
                 fputcsv($file, $elvetis_array_final[$line], ";");
             }
+
+            $file = fopen($csvfile, 'r');
+
+            // identifiant de connection ftp
+            $ftp_user_name = "pacom1_tsn_ftp";
+            $ftp_user_pass = "qf3FXpxM_";
+            $ftp_server = "s3.pacom1.com";
+            $remote_file = "private";
+            $conn_id = ftp_ssl_connect($ftp_server);
+
+            // connection ftp
+            $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
+            ftp_pasv($conn_id, true);
+
+            // ont verifie la connection
+            if ((!$conn_id) || (!$login_result)) {
+                echo "Connexion ftp échouer";
+                echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
+                exit;
+            } else {
+                echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
+                if (ftp_fput($conn_id, $remote_file . '/' . $csv_file_name, $file, FTP_ASCII)) {
+                    echo "Chargement avec succès du fichier $file\n";
+                } else {
+                    echo "Il y a eu un problème lors du chargement du fichier $file\n";
+                }
+            }
             fclose($file);
+            ftp_close($conn_id);
         }
 
 
@@ -227,14 +276,14 @@ class tmpacom1 extends Module
                             'sexe' => $customer_gender,
                         ],
                         'date_vente' => $sale_date,
-                        'montant_port_ht' => $bills_total_HT,
+                        'montant_port_ht' => $bills_total_HT = $bills_total_TTC - $bills_total_HT,
                         'tauxtva_port' => $tax,
                         'total_ttc' => $bills_total_TTC,
                         'exoneration_tva' => $exoneration_tva,
                     ]
                 ]
             ];
-            
+
             /* on integre notre tableau de produit dans notre tableau livraison */
             $pharmagest_array_final = array_merge($pharmagest_array_final['infact']['vente'], $pharmagest_array_product);
 
@@ -248,16 +297,6 @@ class tmpacom1 extends Module
                     'json' => 'false'
                 ],
             ];
-
-            /*$result = ArrayToXml::convert($pharmagest_array_final, [
-                'rootElementName' => 'beldemande',
-                '_attributes' => [
-                    'version' => '1.6',
-                    'date' => $sale_date,
-                    'format' => 'INFACT',
-                    'json' => 'false'
-                ],
-            ], true, 'UTF-8');*/
 
             /* conversion de notre array en fichier xml */
             $pharmagest_array_to_xml = new ArrayToXml($pharmagest_array_final, $xml_root);
