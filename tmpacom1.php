@@ -1,5 +1,6 @@
 <?php
 
+use PhpParser\Node\Stmt\ElseIf_;
 use PrestaShop\PrestaShop\Adapter\Entity\CustomerAddress;
 use Spatie\ArrayToXml\ArrayToXml;
 
@@ -46,8 +47,81 @@ class tmpacom1 extends Module
             && Configuration::deleteByName('MYMODULE_NAME'));
     }
 
+    public function ftpElvetis($csv, $name)
+    {
+        /* passage en mode lecture du csv */
+        $file = fopen($csv, 'r');
+
+        // identifiant de connection ftp
+        $ftp_user_name = "pacom1_tsn_ftp";
+        $ftp_user_pass = "qf3FXpxM_";
+        $ftp_server = "s3.pacom1.com";
+        $remote_file = "private";
+        $conn_id = ftp_ssl_connect($ftp_server);
+
+        // connection ftp
+        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
+        ftp_pasv($conn_id, true);
+
+        // ont verifie la connection
+        if ((!$conn_id) || (!$login_result)) {
+            echo "Connexion ftp échouer";
+            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
+            exit;
+        } else {
+            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
+            if (ftp_fput($conn_id, $remote_file . '/' . $name, $file, FTP_ASCII)) {
+                echo "Chargement avec succès du fichier $file\n";
+            } else {
+                echo "Il y a eu un problème lors du chargement du fichier $file\n";
+            }
+        }
+
+        /* fermeturr du fichier et de la connexion ftp */
+        fclose($file);
+        ftp_close($conn_id);
+    }
+    public function offiConnectRequest($host, $path, $login, $pass, $data)
+    {
+
+        //compression au format gzip du xml envoy� en param�tre
+        //puis encodage du r�sultat en base64
+        $data64z = base64_encode(gzencode($data));
+
+        //initialisation de curl
+        $curl = curl_init();
+
+        //d�claration / initialisations des options de curl
+        curl_setopt_array($curl, array(
+            //retourne le r�sulat � curl sans l'afficher
+            CURLOPT_RETURNTRANSFER => 1,
+            //initialisation de l'url appel�
+            CURLOPT_URL => $host . $path,
+            //affectation du USER AGENT
+            CURLOPT_USERAGENT => 'LGPI',
+            //permet d'indiquer � PHP de faire un HTTP POST
+            CURLOPT_POST => 1,
+            //d�finition des variables � passer lors du POST
+            CURLOPT_POSTFIELDS => array(
+                'login' => $login,
+                'password' => $pass,
+                'data' => $data64z
+            )
+        ));
+
+        //execution de la requete
+        $resp = curl_exec($curl);
+
+        //on ferme la connexion
+        curl_close($curl);
+
+        //on retourne le r�sultat de la requ�te
+        return $resp;
+    }
+
     public function hookactionPaymentConfirmation(array $params)
     {
+
         /* recuperation des information du client er produits */
         $id_order = $params['id_order'];
         $order = new Order((int) $id_order);
@@ -56,7 +130,14 @@ class tmpacom1 extends Module
         $adresses = new CustomerAddress($order->id_address_delivery);
         $gender = new Gender($customer->id_gender);
 
-        echo "<pre>";
+        // paramettre officonnect //
+        $type = "STOCK"; // STOCK / VENTE / FACINT / PROMO
+        $url = 'https://officonnect.pharmagest.com/';
+        $page = 'impexboutique.php';
+        $login = 'testss2i';
+        $pass = 'D0n46j0A';
+
+        /*echo "<pre>";
         print_r($order);
         echo "<pre>";
 
@@ -74,7 +155,7 @@ class tmpacom1 extends Module
 
         echo "<pre>";
         print_r($gender);
-        echo "<pre>";
+        echo "<pre>";*/
 
         /* information client */
         $customer_lastname = $customer->lastname;
@@ -93,6 +174,12 @@ class tmpacom1 extends Module
         $customer_country = $adresses->country;
         $customer_gender = $gender->name[1];
 
+        if ($customer_gender == 'M') :
+            $customer_gender = 'H';
+        elseif ($customer_gender == 'Mme') :
+            $customer_gender = 'F';
+        endif;
+
         /* information facture */
         $bills_id = str_pad($id_order, 7, '0', STR_PAD_LEFT);
         $bills_total_HT = round($order->total_paid_tax_excl, 2);
@@ -108,7 +195,10 @@ class tmpacom1 extends Module
             'Mode de paiement', 'Pays ', 'Code transport', 'Filler', 'Remise coupon', 'Adresse complémentaire', 'Commentaire sur transport', 'S = livraison le Samedi', 'Code produit Colissimo',
             'Code postal Export', 'N° téléphone Export', 'CIP (code produit)', 'Quantité', 'Prix unitaire HT', 'Prix unitaire TTC'
         );
+
+        /* declaration tableau de produits pour pharmagest */
         $pharmagest_array_product = array();
+
         /* boucle permettant de recuperer les produits de la commande */
         foreach ($products as $product) {
 
@@ -191,6 +281,7 @@ class tmpacom1 extends Module
         /* si le tableau elvetis n'est pas vide on ecrit dans un fichier csv */
         if (!empty($elvetis_array_final)) {
 
+            /* ecriture dans notre csv */
             $csv_file_name = 'CDE_' . $bills_id . '.csv';
             $csvfile = __DIR__ . '/tmp/' . $csv_file_name;
             $file = fopen($csvfile, 'w');
@@ -199,35 +290,7 @@ class tmpacom1 extends Module
             foreach ($elvetis_array_final as $line => $value) {
                 fputcsv($file, $elvetis_array_final[$line], ";");
             }
-
-            $file = fopen($csvfile, 'r');
-
-            // identifiant de connection ftp
-            $ftp_user_name = "pacom1_tsn_ftp";
-            $ftp_user_pass = "qf3FXpxM_";
-            $ftp_server = "s3.pacom1.com";
-            $remote_file = "private";
-            $conn_id = ftp_ssl_connect($ftp_server);
-
-            // connection ftp
-            $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
-            ftp_pasv($conn_id, true);
-
-            // ont verifie la connection
-            if ((!$conn_id) || (!$login_result)) {
-                echo "Connexion ftp échouer";
-                echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
-                exit;
-            } else {
-                echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
-                if (ftp_fput($conn_id, $remote_file . '/' . $csv_file_name, $file, FTP_ASCII)) {
-                    echo "Chargement avec succès du fichier $file\n";
-                } else {
-                    echo "Il y a eu un problème lors du chargement du fichier $file\n";
-                }
-            }
-            fclose($file);
-            ftp_close($conn_id);
+            $this->ftpElvetis($csvfile, $csv_file_name);
         }
 
 
@@ -238,13 +301,15 @@ class tmpacom1 extends Module
             $exoneration_tva = 0;
             if ($tax == 0) : $exoneration_tva = 1;
             endif;
+
             $sale_date = date('Y-m-d\TH:i:s');
+
             /* tableau contenant les infos de livraison de pharmagest */
             $pharmagest_array_final = [
                 'infact' => [
                     'vente' => [
                         '_attributes' => [
-                            'num_pharma' => 'testss2i',
+                            'num_pharma' => $login,
                             'numero_vente' => $bills_id,
                         ],
                         'client' => [
@@ -258,6 +323,9 @@ class tmpacom1 extends Module
                                 'rue1' => [
                                     '_cdata' => $customer_adress1,
                                 ],
+                                'rue2' => [
+                                    '_cdata' => $customer_adress2,
+                                ],
                                 'codepostal' => [
                                     '_cdata' => $customer_postcode,
                                 ],
@@ -269,6 +337,9 @@ class tmpacom1 extends Module
                                 ],
                                 'tel' => [
                                     '_cdata' => $customer_phone1,
+                                ],
+                                'portable' => [
+                                    '_cdata' => $customer_phone2,
                                 ],
                                 'email' => ['_cdata' =>
                                 $customer_email,],
@@ -306,23 +377,54 @@ class tmpacom1 extends Module
 
             var_dump($pharmagest_xml);
 
-            /* ecriture de notre xml dans un fichier xml */
-            $filename = __DIR__ . '/tmp/test.xml';
-            if (is_writable($filename)) {
+            $xml_file_name = __DIR__ . '/tmp/test.xml';
+            if (is_writable($xml_file_name)) {
 
-                if (!$fp = fopen($filename, 'a')) {
-                    echo "Impossible d'ouvrir le fichier ($filename)";
+                if (!$fp = fopen($xml_file_name, 'w')) {
+                    echo "Impossible d'ouvrir le fichier ($xml_file_name)";
                     exit;
                 }
 
                 if (fwrite($fp, $pharmagest_xml) === FALSE) {
-                    echo "Impossible d'écrire dans le fichier ($filename)";
+                    echo "Impossible d'écrire dans le fichier ($xml_file_name)";
                     exit;
                 }
-                echo "L'écriture de ($pharmagest_xml) dans le fichier ($filename) a réussi";
+                echo "L'écriture de ($pharmagest_xml) dans le fichier ($xml_file_name) a réussi";
                 fclose($fp);
             } else {
-                echo "Le fichier $filename n'est pas accessible en écriture.";
+                echo "Le fichier $xml_file_name n'est pas accessible en écriture.";
+            }
+
+            if ($type == "STOCK") {
+                //on d�clare le xml permettant de faire l'interrogation de stock
+                $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
+                                        <beldemande date="' . date('Y-m-d') . '" version="1.6" json="false" format="REQUEST">
+                                        <request type="SSTOCK" num_pharma="' . $login . '" stock_differentiel="false"></request>
+                                        </beldemande>';
+                var_dump($xml_demande);
+
+                //on execute la requ�te au serveur OffiConnect
+                $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.xml', 'w');
+                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
+                var_dump($retour_curl);
+                die;
+                //on �crit un fichier xml pour le retour
+                fwrite($fp, $retour_curl);
+                fclose($fp);
+            } else if ($type == "VENTE") {
+
+                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_file_name);
+                echo $retour_curl;
+            } else if ($type == "PROMO") {
+                $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
+                                    <beldemande date="2018-05-15" version="1.6" json="true" format="REQUEST">
+                                        <request type="INPROMO" num_pharma="' . $login . '"  ></request>
+                                    </beldemande>';
+
+                $fp = fopen('promo - ' . $login . '.xml', 'w');
+                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
+                fwrite($fp, $retour_curl);
+                fclose($fp);
             }
             die;
         }
