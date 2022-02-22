@@ -1,6 +1,5 @@
 <?php
 
-use PhpParser\Node\Stmt\ElseIf_;
 use PrestaShop\PrestaShop\Adapter\Entity\CustomerAddress;
 use Spatie\ArrayToXml\ArrayToXml;
 
@@ -47,7 +46,70 @@ class tmpacom1 extends Module
             && Configuration::deleteByName('MYMODULE_NAME'));
     }
 
-    public function ftpElvetis($csv, $name)
+    public function displayForm()
+    {
+        // formulaire du champ paramettre
+        $form = [
+            'form' => [
+                'legend' => [
+                    'title' => $this->l('Quantité minimum pour afficher un produit'),
+                ],
+                'input' => [
+                    [
+                        'type' => 'text',
+                        'label' => $this->l('Entrez votre nombre minimum d\'article : '),
+                        'name' => 'PACOM1_CONFIG',
+                        'size' => 20,
+                        'required' => true,
+                    ],
+                ],
+                'submit' => [
+                    'title' => $this->l('Enregistrer'),
+                    'class' => 'btn btn-default pull-right',
+                ],
+            ],
+        ];
+
+        $helper = new HelperForm();
+
+        // Module, token and currentIndex
+        $helper->table = $this->table;
+        $helper->name_controller = $this->name;
+        $helper->token = Tools::getAdminTokenLite('AdminModules');
+        $helper->currentIndex = AdminController::$currentIndex . '&' . http_build_query(['configure' => $this->name]);
+        $helper->submit_action = 'submit' . $this->name;
+
+        // Default language
+        $helper->default_form_language = (int) Configuration::get('PS_LANG_DEFAULT');
+
+        // Load current value into the form
+        $helper->fields_value['PACOM1_CONFIG'] = Tools::getValue('PACOM1_CONFIG', Configuration::get('PACOM1_CONFIG'));
+
+        return $helper->generateForm([$form]);
+    }
+    public function getContent()
+    {
+        $output = '';
+
+        // this part is executed only when the form is submitted
+        if (Tools::isSubmit('submit' . $this->name)) {
+            // retrieve the value set by the user
+            $pacom1_config_value = (string) Tools::getValue('PACOM1_CONFIG');
+            // check that the value is valid
+            if (empty($pacom1_config_value) || !Validate::isGenericName($pacom1_config_value)) {
+                // invalid value, show an error
+                $output = $this->displayError($this->l('Erreur'));
+            } else {
+                // value is ok, update it and display a confirmation message
+                Configuration::updateValue('PACOM1_CONFIG', $pacom1_config_value);
+                $output = $this->displayConfirmation($this->l('Valeur enregistrer !'));
+            }
+        }
+
+        // display any message, then the form
+        return $output . $this->displayForm();
+    }
+    public function elvetisSendOrder($csv, $name)
     {
         /* passage en mode lecture du csv */
         $file = fopen($csv, 'r');
@@ -77,10 +139,79 @@ class tmpacom1 extends Module
             }
         }
 
-        /* fermeturr du fichier et de la connexion ftp */
+        /* fermeture du fichier et de la connexion ftp */
         fclose($file);
         ftp_close($conn_id);
     }
+
+    public function elvetisStock()
+    {
+        /* je recupere la valeur par defaut de limite de stock */
+        $pacom1_config_value = intval(Configuration::get('PACOM1_CONFIG'));
+        var_dump($pacom1_config_value);
+
+        /* info des fichier local/serveur ftp */
+        $local_file_name = 'stocks.csv';
+        $local_file = __DIR__ . '/tmp/' . $local_file_name;
+        $ftp_file = "stocks.csv";
+        $remote_file = "private";
+
+        // identifiant de connection ftp
+        $ftp_user_name = "pacom1_tsn_ftp";
+        $ftp_user_pass = "qf3FXpxM_";
+        $ftp_server = "s3.pacom1.com";
+        $conn_id = ftp_ssl_connect($ftp_server);
+
+        // connection ftp
+        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
+        ftp_pasv($conn_id, true);
+
+        if ((!$conn_id) || (!$login_result)) {
+            echo "Connexion ftp échouer";
+            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
+            exit;
+        } else {
+            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
+        }
+        // recuperarion du csv depuis le ftp //
+        if (ftp_get($conn_id, $local_file, $remote_file . '/' . $ftp_file, FTP_BINARY)) {
+            echo "Le fichier $local_file a été écrit avec succès\n";
+        } else {
+            echo "Il y a un problème\n";
+        }
+        ftp_close($conn_id);
+
+        $row = -1;
+        if (($handle = fopen($local_file, "r")) !== FALSE) {
+            while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
+                $num = count($data);
+                $row++;
+                for ($c = 0; $c < $num; $c++) {
+                    $arr[$row][$c]= $data[$c];
+                }
+            }
+            fclose($handle);
+        }
+        foreach($arr as $keys => $value):
+            $all_reference[] = Product::getIdByReference($arr[$keys][0]);
+            $product = new Product($all_reference);
+            $test = $product->reference;
+            if ($arr[$keys][0] != $test):
+                echo "ok";
+                if(intval($arr[$keys][2]) < $pacom1_config_value):
+                    echo "inferieur a pacom1";
+                    $product->active = "1";
+                endif;
+            endif;
+        endforeach;
+        echo "<pre>";
+        print_r($all_reference);
+        echo "<pre>";
+        echo "<pre>";
+        print_r($product);
+        echo "<pre>";
+    }
+
     public function offiConnectRequest($host, $path, $login, $pass, $data)
     {
 
@@ -155,7 +286,7 @@ class tmpacom1 extends Module
 
         echo "<pre>";
         print_r($gender);
-        echo "<pre>";*/
+        echo "<pre>";
 
         /* information client */
         $customer_lastname = $customer->lastname;
@@ -290,7 +421,7 @@ class tmpacom1 extends Module
             foreach ($elvetis_array_final as $line => $value) {
                 fputcsv($file, $elvetis_array_final[$line], ";");
             }
-            $this->ftpElvetis($csvfile, $csv_file_name);
+            $this->elvetisSendOrder($csvfile, $csv_file_name);
         }
 
 
@@ -398,7 +529,7 @@ class tmpacom1 extends Module
             if ($type == "STOCK") {
                 //on d�clare le xml permettant de faire l'interrogation de stock
                 $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
-                                        <beldemande date="' . date('Y-m-d') . '" version="1.6" json="false" format="REQUEST">
+                                        <beldemande date="' . date('Y-m-d') . '" version="1.6" json="true" format="REQUEST">
                                         <request type="SSTOCK" num_pharma="' . $login . '" stock_differentiel="false"></request>
                                         </beldemande>';
                 var_dump($xml_demande);
@@ -407,7 +538,6 @@ class tmpacom1 extends Module
                 $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.xml', 'w');
                 $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
                 var_dump($retour_curl);
-                die;
                 //on �crit un fichier xml pour le retour
                 fwrite($fp, $retour_curl);
                 fclose($fp);
@@ -426,6 +556,7 @@ class tmpacom1 extends Module
                 fwrite($fp, $retour_curl);
                 fclose($fp);
             }
+            $this->elvetisStock();
             die;
         }
     }
