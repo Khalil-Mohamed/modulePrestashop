@@ -1,7 +1,7 @@
 <?php
-
 use PrestaShop\PrestaShop\Adapter\Entity\CustomerAddress;
 use Spatie\ArrayToXml\ArrayToXml;
+
 
 if (!defined('_PS_VERSION_'))
     exit;
@@ -146,10 +146,11 @@ class tmpacom1 extends Module
 
     public function elvetisStock()
     {
+        Module::getInstanceByName('WkCombinationcustomize');
         /* je recupere la valeur par defaut de limite de stock */
         $pacom1_config_value = intval(Configuration::get('PACOM1_CONFIG'));
         var_dump($pacom1_config_value);
-
+        
         /* info des fichier local/serveur ftp */
         $local_file_name = 'stocks.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
@@ -192,23 +193,55 @@ class tmpacom1 extends Module
             }
             fclose($handle);
         }
+
         foreach($arr as $keys => $value):
-            $all_reference[] = Product::getIdByReference($arr[$keys][0]);
+            $all_reference[] = Product::getIdByReference($arr[$keys][0]);            
             $product = new Product($all_reference);
-            $test = $product->reference;
-            if ($arr[$keys][0] != $test):
-                echo "ok";
+            $reference = $product->reference;
+            $attribute = $product->getAttributeCombinations();
+            $id_attribut = $attribute[$keys]['id_product_attribute'];
+            $attribute_reference = $attribute[$keys]['reference'];
+
+            if ($arr[$keys][0] == $attribute_reference):
+                echo "ok declinaison\n";
                 if(intval($arr[$keys][2]) < $pacom1_config_value):
-                    echo "inferieur a pacom1";
-                    $product->active = "1";
+                    echo "inferieur a pacom1\n";
+                    $combiData = WkCombinationStatus::getCombinationStatus(
+                        $product->id,
+                        $id_attribut,
+                        $product->id_shop_default
+                    );
+
+                    if(!$combiData):
+                    
+                        $objCombiStatus = new WkCombinationStatus();
+                        $objCombiStatus->id_ps_product = (int) $product->id;
+                        $objCombiStatus->id_ps_product_attribute = (int) $id_attribut;
+                        $objCombiStatus->id_shop = $product->id_shop_default;
+                        $objCombiStatus->save();
+                    endif;
+                else:
+                    echo "superieur a pacom1";
+                    $enable = WkCombinationStatus::deleteORActiveSinglePsCombination($id_attribut);
                 endif;
             endif;
+
+            if ($arr[$keys][0] == $reference):
+                echo "ok normal";
+                if(intval($arr[$keys][2]) < $pacom1_config_value):
+                    echo "inferieur a pacom1";
+                    $product->active = 0;
+                    $product-> update();
+                else:
+                    echo "superieur a pacom1";
+                    $product->active = 1;
+                    $product-> update();
+                endif;
+            endif;
+            
         endforeach;
         echo "<pre>";
-        print_r($all_reference);
-        echo "<pre>";
-        echo "<pre>";
-        print_r($product);
+        print_r($attribute);
         echo "<pre>";
     }
 
