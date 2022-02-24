@@ -1,4 +1,5 @@
 <?php
+
 use PrestaShop\PrestaShop\Adapter\Entity\CustomerAddress;
 use Spatie\ArrayToXml\ArrayToXml;
 
@@ -150,7 +151,7 @@ class tmpacom1 extends Module
         /* je recupere la valeur par defaut de limite de stock */
         $pacom1_config_value = intval(Configuration::get('PACOM1_CONFIG'));
         var_dump($pacom1_config_value);
-        
+
         /* info des fichier local/serveur ftp */
         $local_file_name = 'stocks.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
@@ -188,23 +189,23 @@ class tmpacom1 extends Module
                 $num = count($data);
                 $row++;
                 for ($c = 0; $c < $num; $c++) {
-                    $arr[$row][$c]= $data[$c];
+                    $arr[$row][$c] = $data[$c];
                 }
             }
             fclose($handle);
         }
 
-        foreach($arr as $keys => $value):
-            $all_reference[] = Product::getIdByReference($arr[$keys][0]);            
+        foreach ($arr as $keys => $value) :
+            $all_reference[] = Product::getIdByReference($arr[$keys][0]);
             $product = new Product($all_reference);
             $reference = $product->reference;
             $attribute = $product->getAttributeCombinations();
             $id_attribut = $attribute[$keys]['id_product_attribute'];
             $attribute_reference = $attribute[$keys]['reference'];
 
-            if ($arr[$keys][0] == $attribute_reference):
+            if ($arr[$keys][0] == $attribute_reference) :
                 echo "ok declinaison\n";
-                if(intval($arr[$keys][2]) < $pacom1_config_value):
+                if (intval($arr[$keys][2]) < $pacom1_config_value) :
                     echo "inferieur a pacom1\n";
                     $combiData = WkCombinationStatus::getCombinationStatus(
                         $product->id,
@@ -212,37 +213,63 @@ class tmpacom1 extends Module
                         $product->id_shop_default
                     );
 
-                    if(!$combiData):
-                    
+                    if (!$combiData) :
+
                         $objCombiStatus = new WkCombinationStatus();
                         $objCombiStatus->id_ps_product = (int) $product->id;
                         $objCombiStatus->id_ps_product_attribute = (int) $id_attribut;
                         $objCombiStatus->id_shop = $product->id_shop_default;
                         $objCombiStatus->save();
                     endif;
-                else:
-                    echo "superieur a pacom1";
+                else :
+                    echo "superieur a pacom1\n";
                     $enable = WkCombinationStatus::deleteORActiveSinglePsCombination($id_attribut);
                 endif;
             endif;
 
-            if ($arr[$keys][0] == $reference):
+            if ($arr[$keys][0] == $reference) :
                 echo "ok normal";
-                if(intval($arr[$keys][2]) < $pacom1_config_value):
-                    echo "inferieur a pacom1";
+                if (intval($arr[$keys][2]) < $pacom1_config_value) :
+                    echo "inferieur a pacom1\n";
                     $product->active = 0;
-                    $product-> update();
-                else:
-                    echo "superieur a pacom1";
+                    $product->update();
+                else :
+                    echo "superieur a pacom1\n";
                     $product->active = 1;
-                    $product-> update();
+                    $product->update();
                 endif;
             endif;
-            
+
         endforeach;
-        echo "<pre>";
-        print_r($attribute);
-        echo "<pre>";
+    }
+
+    public function pharmagestStock()
+    {
+        $json_file_name = 'stock - testss2i.json';
+        $json_file = __DIR__ . '/tmp/' . $json_file_name;
+        $stock = json_decode(file_get_contents($json_file), true);
+        foreach ($stock as $info_stock => $donnees_stock) {
+            foreach ($donnees_stock['sstock']['produit'] as $info_produit => $donnees_produit) {
+                foreach ($donnees_produit['zone'] as $info_zone => $donnees_zone) {
+                    $code_produit[] = $donnees_produit['codeproduit'];
+                    $mini_produit[] = $donnees_zone['@mini'];
+                    $stock_produit[] =  $donnees_zone['@stock'];
+
+                }
+            }
+        }
+        foreach ($code_produit as $key => $value) {
+            $all_id[]= Product::getIdByReference($value);
+            if(!empty($all_id[$key])):
+                echo "<pre>";
+                print_r($all_id);
+                echo "<pre>";
+                $pharmagest_product = new Product($all_id);
+                echo "<pre>";
+                print_r($pharmagest_product);
+                echo "<pre>";
+            endif;
+        }
     }
 
     public function offiConnectRequest($host, $path, $login, $pass, $data)
@@ -568,11 +595,12 @@ class tmpacom1 extends Module
                 var_dump($xml_demande);
 
                 //on execute la requ�te au serveur OffiConnect
-                $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.xml', 'w');
+                $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.json', 'w');
                 $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
                 var_dump($retour_curl);
                 //on �crit un fichier xml pour le retour
                 fwrite($fp, $retour_curl);
+                var_dump($fp);
                 fclose($fp);
             } else if ($type == "VENTE") {
 
@@ -590,6 +618,7 @@ class tmpacom1 extends Module
                 fclose($fp);
             }
             $this->elvetisStock();
+            $this->pharmagestStock();
             die;
         }
     }
