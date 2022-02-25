@@ -49,7 +49,7 @@ class tmpacom1 extends Module
 
     public function displayForm()
     {
-        // formulaire du champ paramettre
+        // formulaire du champ de configuration
         $form = [
             'form' => [
                 'legend' => [
@@ -88,6 +88,7 @@ class tmpacom1 extends Module
 
         return $helper->generateForm([$form]);
     }
+
     public function getContent()
     {
         $output = '';
@@ -110,6 +111,7 @@ class tmpacom1 extends Module
         // display any message, then the form
         return $output . $this->displayForm();
     }
+
     public function elvetisSendOrder($csv, $name)
     {
         /* passage en mode lecture du csv */
@@ -144,7 +146,7 @@ class tmpacom1 extends Module
         fclose($file);
         ftp_close($conn_id);
     }
-
+    
     public function elvetisStock()
     {
         Module::getInstanceByName('WkCombinationcustomize');
@@ -245,6 +247,30 @@ class tmpacom1 extends Module
 
     public function pharmagestStock()
     {
+        // paramettre officonnect //
+        $type = "STOCK"; // STOCK / VENTE / FACINT / PROMO
+        $url = 'https://officonnect.pharmagest.com/';
+        $page = 'impexboutique.php';
+        $login = 'testss2i';
+        $pass = 'D0n46j0A';
+
+        if ($type == "STOCK") {
+            //on d�clare le xml permettant de faire l'interrogation de stock
+            $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
+                                    <beldemande date="' . date('Y-m-d') . '" version="1.6" json="true" format="REQUEST">
+                                    <request type="SSTOCK" num_pharma="' . $login . '" stock_differentiel="false"></request>
+                                    </beldemande>';
+            var_dump($xml_demande);
+
+            //on execute la requ�te au serveur OffiConnect
+            $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.json', 'w');
+            $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
+            var_dump($retour_curl);
+            //on �crit un fichier xml pour le retour
+            fwrite($fp, $retour_curl);
+            fclose($fp);
+        }
+
         $json_file_name = 'stock - testss2i.json';
         $json_file = __DIR__ . '/tmp/' . $json_file_name;
         $stock = json_decode(file_get_contents($json_file), true);
@@ -259,15 +285,29 @@ class tmpacom1 extends Module
             }
         }
         foreach ($code_produit as $key => $value) {
-            $all_id[]= Product::getIdByReference($value);
-            if(!empty($all_id[$key])):
+            $all_id= Product::getIdByReference($value);            
+            if(!empty($all_id)):
+                /*echo($value);
                 echo "<pre>";
                 print_r($all_id);
-                echo "<pre>";
+                echo "<pre>";*/
                 $pharmagest_product = new Product($all_id);
-                echo "<pre>";
+                $reference = $pharmagest_product->reference;
+                /*echo "<pre>";
                 print_r($pharmagest_product);
-                echo "<pre>";
+                echo "<pre>";*/
+                if ($value == $reference) :
+                    echo "ok normal";
+                    if (intval($stock_produit[$key]) < $mini_produit[$key]) :
+                        echo "inferieur a pacom1\n";
+                        $pharmagest_product->active = 0;
+                        $pharmagest_product->update();
+                    else :
+                        echo "superieur a pacom1\n";
+                        $pharmagest_product->active = 1;
+                        $pharmagest_product->update();
+                    endif;
+                endif;
             endif;
         }
     }
@@ -320,33 +360,17 @@ class tmpacom1 extends Module
         $products = $order->getProducts();
         $adresses = new CustomerAddress($order->id_address_delivery);
         $gender = new Gender($customer->id_gender);
+        $orderCarrier = new OrderCarrier($order->getIdOrderCarrier());
+        echo "<pre>";
+        print_r($orderCarrier);
+        echo"</pre";
 
         // paramettre officonnect //
-        $type = "STOCK"; // STOCK / VENTE / FACINT / PROMO
+        $type = "VENTE"; // STOCK / VENTE / FACINT / PROMO
         $url = 'https://officonnect.pharmagest.com/';
         $page = 'impexboutique.php';
         $login = 'testss2i';
         $pass = 'D0n46j0A';
-
-        /*echo "<pre>";
-        print_r($order);
-        echo "<pre>";
-
-        echo "<pre>";
-        print_r($customer);
-        echo "<pre>";
-
-        echo "<pre>";
-        print_r($products);
-        echo "<pre>";
-
-        echo "<pre>";
-        print_r($adresses);
-        echo "<pre>";
-
-        echo "<pre>";
-        print_r($gender);
-        echo "<pre>";
 
         /* information client */
         $customer_lastname = $customer->lastname;
@@ -361,6 +385,7 @@ class tmpacom1 extends Module
         $customer_email = $customer->email;
         $customer_phone1 = $adresses->phone;
         $customer_phone2 = $adresses->phone_mobile;
+        echo($customer_phone2);
         $customer_birth = $customer->birthday;
         $customer_country = $adresses->country;
         $customer_gender = $gender->name[1];
@@ -370,6 +395,7 @@ class tmpacom1 extends Module
         elseif ($customer_gender == 'Mme') :
             $customer_gender = 'F';
         endif;
+
 
         /* information facture */
         $bills_id = str_pad($id_order, 7, '0', STR_PAD_LEFT);
@@ -453,8 +479,8 @@ class tmpacom1 extends Module
                     'codeproduit' => $product_reference,
                     'designation_produit' => ['_cdata' => $product_name],
                     'quantite' => $product_quantity,
-                    'remise' => 0,
                     'prix_brut' => $product_unit_HT,
+                    'remise' => 0,
                     'prix_net' => $product_unit_TTC,
                     'tauxtva' => $tax
 
@@ -529,9 +555,6 @@ class tmpacom1 extends Module
                                 'tel' => [
                                     '_cdata' => $customer_phone1,
                                 ],
-                                'portable' => [
-                                    '_cdata' => $customer_phone2,
-                                ],
                                 'email' => ['_cdata' =>
                                 $customer_email,],
                             ],
@@ -545,10 +568,11 @@ class tmpacom1 extends Module
                     ]
                 ]
             ];
+            
 
             /* on integre notre tableau de produit dans notre tableau livraison */
-            $pharmagest_array_final = array_merge($pharmagest_array_final['infact']['vente'], $pharmagest_array_product);
-
+            $pharmagest_array_final['infact']['vente'] += $pharmagest_array_product;
+            
             /* root de notre fichier xml */
             $xml_root = [
                 'rootElementName' => 'beldemande',
@@ -572,52 +596,41 @@ class tmpacom1 extends Module
             if (is_writable($xml_file_name)) {
 
                 if (!$fp = fopen($xml_file_name, 'w')) {
-                    echo "Impossible d'ouvrir le fichier ($xml_file_name)";
+                    echo "Impossible d'ouvrir le fichier ($xml_file_name)\n";
                     exit;
                 }
 
                 if (fwrite($fp, $pharmagest_xml) === FALSE) {
-                    echo "Impossible d'écrire dans le fichier ($xml_file_name)";
+                    echo "Impossible d'écrire dans le fichier ($xml_file_name)\n";
                     exit;
                 }
-                echo "L'écriture de ($pharmagest_xml) dans le fichier ($xml_file_name) a réussi";
+                //echo "L'écriture de ($pharmagest_xml) dans le fichier ($xml_file_name) a réussi\n";
                 fclose($fp);
             } else {
-                echo "Le fichier $xml_file_name n'est pas accessible en écriture.";
+                echo "Le fichier $xml_file_name n'est pas accessible en écriture.\n";
             }
+            $xml = file_get_contents($xml_file_name);
+            
+            if ($type == "VENTE") {
 
-            if ($type == "STOCK") {
-                //on d�clare le xml permettant de faire l'interrogation de stock
-                $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
-                                        <beldemande date="' . date('Y-m-d') . '" version="1.6" json="true" format="REQUEST">
-                                        <request type="SSTOCK" num_pharma="' . $login . '" stock_differentiel="false"></request>
-                                        </beldemande>';
-                var_dump($xml_demande);
-
-                //on execute la requ�te au serveur OffiConnect
-                $fp = fopen(__DIR__ . '/tmp/stock - ' . $login . '.json', 'w');
-                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
-                var_dump($retour_curl);
-                //on �crit un fichier xml pour le retour
-                fwrite($fp, $retour_curl);
-                var_dump($fp);
-                fclose($fp);
-            } else if ($type == "VENTE") {
-
-                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_file_name);
+                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $pharmagest_xml);
                 echo $retour_curl;
-            } else if ($type == "PROMO") {
-                $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
-                                    <beldemande date="2018-05-15" version="1.6" json="true" format="REQUEST">
-                                        <request type="INPROMO" num_pharma="' . $login . '"  ></request>
-                                    </beldemande>';
-
-                $fp = fopen('promo - ' . $login . '.xml', 'w');
-                $retour_curl = $this->offiConnectRequest($url, $page, $login, $pass, $xml_demande);
-                fwrite($fp, $retour_curl);
-                fclose($fp);
             }
-            $this->elvetisStock();
+            else if ($type == "FACINT") {
+	
+                $xml_demande = '<?xml version="1.0" encoding="UTF-8"?>
+                                    <beldemande date="' . date('Y-m-d') . '" version="1.1" format="REQUEST">
+                                    <request type="FACINT" num_pharma="'.$login.'"></request>
+                                    </beldemande>';	
+                    
+                $fp = fopen(__DIR__ . '/tmp/facint - '.$login.'.xml', 'w');
+                $retour_curl = $this->offiConnectRequest($url , $page , $login, $pass, $xml_demande);
+                var_dump($retour_curl);
+                var_dump($xml_demande);
+                fwrite($fp,$retour_curl);
+                fclose($fp);	
+            }
+            //$this->elvetisStock();
             $this->pharmagestStock();
             die;
         }
