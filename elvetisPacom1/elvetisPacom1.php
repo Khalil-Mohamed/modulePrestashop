@@ -1,4 +1,6 @@
 <?php
+
+
 if (!defined('_PS_VERSION_')) {
     exit;
 }
@@ -16,7 +18,7 @@ class elvetisPacom1 extends Module
             'max' => _PS_VERSION_
         ];
         $this->bootstrap = true;
-        $this->cron_url = _PS_BASE_URL_._MODULE_DIR_.'elvetisPacom1/cron.php?token='.substr(Tools::encrypt('elvetisPacom1/cron'), 0, 10);
+        $this->cron_url = _PS_BASE_URL_ . _MODULE_DIR_ . 'elvetisPacom1/cron.php?token=' . substr(Tools::encrypt('elvetisPacom1/cron'), 0, 10);
         parent::__construct();
 
         $this->displayName = $this->l('Gestion erp elvetis');
@@ -29,6 +31,7 @@ class elvetisPacom1 extends Module
         }
     }
 
+    // fonction pour installer le module et les hook necessaires 
     public function install()
     {
         return (parent::install()
@@ -38,6 +41,7 @@ class elvetisPacom1 extends Module
             && Configuration::updateValue('ELVETIS_PACOM1', 'my friend'));
     }
 
+    //fonction pour desinstaller le module
     public function uninstall()
     {
         return (parent::uninstall()
@@ -51,7 +55,7 @@ class elvetisPacom1 extends Module
         $form = [
             'form' => [
                 'legend' => [
-                    'title' => $this->l('lien cron : '.$this->cron_url.' '),
+                    'title' => $this->l('lien cron : ' . $this->cron_url . ' '),
                 ],
                 'input' => [
                     [
@@ -68,7 +72,6 @@ class elvetisPacom1 extends Module
                 ],
             ],
         ];
-        $test = "<h2>".$this->cron_url."</h2>";
 
         $helper = new HelperForm();
 
@@ -112,6 +115,7 @@ class elvetisPacom1 extends Module
         return $output . $this->displayForm();
     }
 
+    // fonction pour envoyer la commande via ftp
     public function elvetisSendOrder($csv, $name)
     {
         /* passage en mode lecture du csv */
@@ -149,18 +153,21 @@ class elvetisPacom1 extends Module
         ftp_close($conn_id);
     }
 
+    // fonction pour mettre a jour le stock
     public function elvetisStock()
     {
+        // je fait une instance du module WkCombinationcustomize
         Module::getInstanceByName('WkCombinationcustomize');
         /* je recupere la valeur par defaut de limite de stock */
         $pacom1_config_value = intval(Configuration::get('PACOM1_CONFIG'));
-        var_dump($pacom1_config_value);
+        //var_dump($pacom1_config_value);
 
         /* info des fichier local/serveur ftp */
         $local_file_name = 'stocks.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
         $ftp_file = "stocks.csv";
         $remote_file = "private";
+
 
         // identifiant de connection ftp
         $ftp_user_name = "pacom1_tsn_ftp";
@@ -199,24 +206,28 @@ class elvetisPacom1 extends Module
             fclose($handle);
         }
 
+        /*nous allons verifier dans cette boucle le stock de chaque produit */
         foreach ($arr as $keys => $value) :
-            $all_reference[] = Product::getIdByReference($arr[$keys][0]);
-            $product = new Product($all_reference);
+            $all_id[] = Product::getIdByReference($arr[$keys][0]);
+            $product = new Product($all_id);
             $reference = $product->reference;
             $attribute = $product->getAttributeCombinations();
             $id_attribut = $attribute[$keys]['id_product_attribute'];
             $attribute_reference = $attribute[$keys]['reference'];
 
+            // on verifie si nous sommes dans une declinaison
             if ($arr[$keys][0] == $attribute_reference) :
-                echo "ok declinaison\n";
+                echo "ce produit est une declinaison\n";
                 if (intval($arr[$keys][2]) < $pacom1_config_value) :
-                    echo "inferieur a pacom1\n";
+                    echo "quantitté minimum insufisante\n";
+
+                    // on recupere les info de la declinaison dans la database
                     $combiData = WkCombinationStatus::getCombinationStatus(
                         $product->id,
                         $id_attribut,
                         $product->id_shop_default
                     );
-
+                    // on verifie si la declinaison se trouve dans la base de données
                     if (!$combiData) :
                         $objCombiStatus = new WkCombinationStatus();
                         $objCombiStatus->id_ps_product = (int) $product->id;
@@ -225,25 +236,91 @@ class elvetisPacom1 extends Module
                         $objCombiStatus->save();
                     endif;
                 else :
-                    echo "superieur a pacom1\n";
+                    echo "quantitté minimum suffisante\n";
                     $enable = WkCombinationStatus::deleteORActiveSinglePsCombination($id_attribut);
                 endif;
             endif;
 
+            // on verfier si c'est un produit mere
             if ($arr[$keys][0] == $reference) :
-                echo "ok normal";
+                echo "le produit est un produit mere";
                 if (intval($arr[$keys][2]) < $pacom1_config_value) :
-                    echo "inferieur a pacom1\n";
+                    echo "quantitté minimum insufisante\n";
                     $product->active = 0;
                     $product->update();
                 else :
-                    echo "superieur a pacom1\n";
+                    echo "quantitté minimum suffisante\n";
                     $product->active = 1;
                     $product->update();
                 endif;
             endif;
 
         endforeach;
+    }
+
+    public function elvetisTracking()
+    {
+        $local_file_name = 'EXP_20220303150622.csv';
+        $local_file = __DIR__ . '/tmp/' . $local_file_name;
+        $ftp_file = "EXP_20220303150622.csv";
+        $remote_file = "private";
+
+
+        // identifiant de connection ftp
+        $ftp_user_name = "pacom1_tsn_ftp";
+        $ftp_user_pass = "qf3FXpxM_";
+        $ftp_server = "s3.pacom1.com";
+        $conn_id = ftp_ssl_connect($ftp_server);
+
+        // connection ftp
+        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
+        ftp_pasv($conn_id, true);
+
+        if ((!$conn_id) || (!$login_result)) {
+            echo "Connexion ftp échouer";
+            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
+            exit;
+        } else {
+            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
+        }
+        // recuperarion du csv depuis le ftp //
+        if (ftp_get($conn_id, $local_file, $remote_file . '/' . $ftp_file, FTP_BINARY)) {
+            echo "Le fichier $local_file a été écrit avec succès\n";
+        } else {
+            echo "Il y a un problème\n";
+        }
+        ftp_close($conn_id);
+
+        $row = -1;
+        if (($handle = fopen($local_file, "r")) !== FALSE) {
+            while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
+                $num = count($data);
+                $row++;
+                for ($c = 0; $c < $num; $c++) {
+                    $arr[$row][$c] = $data[$c];
+                }
+            }
+            fclose($handle);
+        }
+        foreach ($arr as $keys => $value) :
+            $all_id = $arr[$keys][0];
+            $order = new Order((int) $all_id);
+            $product = $order->getProducts();
+            $order_shipping = $order->getShipping();
+            foreach($order_shipping as $keys => $value):
+            $carrier = new OrderCarrier($order_shipping[$keys]['id_order_carrier']);
+            echo "<pre>";
+            print_r($order_shipping);
+            echo "</pre>";
+            echo "<pre>";
+            print_r($carrier);
+            echo "</pre>";
+            endforeach;
+            echo "<pre>";
+            print_r($product);
+            echo "</pre>";
+        endforeach;
+        die;
     }
 
     public function hookactionPaymentConfirmation(array $params)
@@ -255,8 +332,8 @@ class elvetisPacom1 extends Module
         $customer = new Customer($order->id_customer);
         $products = $order->getProducts();
         $adresses = new CustomerAddress($order->id_address_delivery);
-        $orderCarrier = new OrderCarrier($order->getIdOrderCarrier());
-        
+
+
         /* information client */
         $customer_lastname = $customer->lastname;
         $customer_firstname = $customer->firstname;
@@ -270,8 +347,8 @@ class elvetisPacom1 extends Module
         $customer_email = $customer->email;
         $customer_phone1 = $adresses->phone;
         $customer_phone2 = $adresses->phone_mobile;
-        $customer_country = $adresses->country;        
-        
+        $customer_country = $adresses->country;
+
         /* information facture */
         $bills_id = str_pad($id_order, 7, '0', STR_PAD_LEFT);
         $bills_total_HT = round($order->total_paid_tax_excl, 2);
@@ -287,9 +364,6 @@ class elvetisPacom1 extends Module
             'Mode de paiement', 'Pays ', 'Code transport', 'Filler', 'Remise coupon', 'Adresse complémentaire', 'Commentaire sur transport', 'S = livraison le Samedi', 'Code produit Colissimo',
             'Code postal Export', 'N° téléphone Export', 'CIP (code produit)', 'Quantité', 'Prix unitaire HT', 'Prix unitaire TTC'
         );
-
-        /* declaration tableau de produits pour pharmagest */
-        $pharmagest_array_product = array();
 
         /* boucle permettant de recuperer les produits de la commande */
         foreach ($products as $product) {
@@ -362,6 +436,7 @@ class elvetisPacom1 extends Module
             }
             $this->elvetisSendOrder($csvfile, $csv_file_name);
         }
+        $this->elvetisTracking();
+        die;
     }
 }
-
