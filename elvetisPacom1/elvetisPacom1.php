@@ -1,5 +1,6 @@
 <?php
 
+use function Ramsey\Uuid\v1;
 
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -260,6 +261,7 @@ class elvetisPacom1 extends Module
 
     public function elvetisTracking()
     {
+        Module::getInstanceByName('multitrackingbo');
         $local_file_name = 'EXP_20220303150622.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
         $ftp_file = "EXP_20220303150622.csv";
@@ -300,26 +302,40 @@ class elvetisPacom1 extends Module
                     $arr[$row][$c] = $data[$c];
                 }
             }
+            unset($arr[0]);
             fclose($handle);
         }
+        echo "<pre>";
+        print_r($arr);
+        echo "</pre>";
         foreach ($arr as $keys => $value) :
             $all_id = $arr[$keys][0];
             $order = new Order((int) $all_id);
             $product = $order->getProducts();
             $order_shipping = $order->getShipping();
-            foreach($order_shipping as $keys => $value):
-            $carrier = new OrderCarrier($order_shipping[$keys]['id_order_carrier']);
+            $orderCarrier = new OrderCarrier($order->getIdOrderCarrier());
+            $orderCarrier->tracking_number = $arr[$keys][4];
+            $orderCarrier->update();
+            $order->current_state = 5;
+            $order->update();
+            /*foreach ($order_shipping as $key => $value) {
+                $product_carrier = new OrderCarrier($order_shipping[$key]['id_order_carrier']);
+                $wt = $product_carrier->getWsMtbProducts();
+                echo "<pre>";
+                print_r($wt);
+                echo "</pre>";
+            }*/
             echo "<pre>";
-            print_r($order_shipping);
+            print_r($orderCarrier);
             echo "</pre>";
             echo "<pre>";
-            print_r($carrier);
+            print_r($order);
             echo "</pre>";
-            endforeach;
-            echo "<pre>";
-            print_r($product);
-            echo "</pre>";
+
         endforeach;
+        echo "<pre>";
+        print_r($product);
+        echo "</pre>";
         die;
     }
 
