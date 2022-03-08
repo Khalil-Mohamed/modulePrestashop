@@ -1,6 +1,5 @@
 <?php
-
-use function Ramsey\Uuid\v1;
+include_once _PS_MODULE_DIR_.'multitrackingbo/controllers/admin/AdminMultiTrackingBo.php';
 
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -116,6 +115,44 @@ class elvetisPacom1 extends Module
         return $output . $this->displayForm();
     }
 
+    public function ftpGetFile(){
+
+        // identifiant de connection ftp
+        $ftp_user_name = "pacom1_tsn_ftp";
+        $ftp_user_pass = "qf3FXpxM_";
+        $ftp_server = "s3.pacom1.com";
+        $conn_id = ftp_ssl_connect($ftp_server);
+        $local_file = __DIR__ . '\tmp';
+        $remote_file = "private";
+
+        // connection ftp
+        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
+        ftp_pasv($conn_id, true);
+
+        if ((!$conn_id) || (!$login_result)) {
+            echo "Connexion ftp échouer";
+            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
+            exit;
+        } else {
+            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
+        }
+
+        $contents = ftp_nlist($conn_id, $remote_file);
+        var_dump($contents);
+
+        foreach ($contents as $file)
+        {
+            $local_file = __DIR__ . '/tmp/' . $file;
+            if (str_contains($file, 'stocks')) {
+                ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
+            }
+            if (str_contains($file, date('ymd'))) {
+                ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
+            }
+        }
+        ftp_close($conn_id);
+    }
+
     // fonction pour envoyer la commande via ftp
     public function elvetisSendOrder($csv, $name)
     {
@@ -163,40 +200,11 @@ class elvetisPacom1 extends Module
         $pacom1_config_value = intval(Configuration::get('PACOM1_CONFIG'));
         //var_dump($pacom1_config_value);
 
-        /* info des fichier local/serveur ftp */
-        $local_file_name = 'stocks.csv';
-        $local_file = __DIR__ . '/tmp/' . $local_file_name;
-        $ftp_file = "stocks.csv";
-        $remote_file = "private";
-
-
-        // identifiant de connection ftp
-        $ftp_user_name = "pacom1_tsn_ftp";
-        $ftp_user_pass = "qf3FXpxM_";
-        $ftp_server = "s3.pacom1.com";
-        $conn_id = ftp_ssl_connect($ftp_server);
-
-        // connection ftp
-        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
-        ftp_pasv($conn_id, true);
-
-        if ((!$conn_id) || (!$login_result)) {
-            echo "Connexion ftp échouer";
-            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
-            exit;
-        } else {
-            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
-        }
-        // recuperarion du csv depuis le ftp //
-        if (ftp_get($conn_id, $local_file, $remote_file . '/' . $ftp_file, FTP_BINARY)) {
-            echo "Le fichier $local_file a été écrit avec succès\n";
-        } else {
-            echo "Il y a un problème\n";
-        }
-        ftp_close($conn_id);
+        $stock_file = 'stocks.csv';
+        $csvfile = __DIR__ . '/tmp/' . $stock_file;
 
         $row = -1;
-        if (($handle = fopen($local_file, "r")) !== FALSE) {
+        if (($handle = fopen($csvfile, "r")) !== FALSE) {
             while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
                 $num = count($data);
                 $row++;
@@ -261,10 +269,10 @@ class elvetisPacom1 extends Module
 
     public function elvetisTracking()
     {
-        Module::getInstanceByName('multitrackingbo');
+        // info du dossier ftp
         $local_file_name = 'EXP_20220303150622.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
-        $ftp_file = "EXP_20220303150622.csv";
+        /*$ftp_file = "EXP_20220303150622.csv";
         $remote_file = "private";
 
 
@@ -285,14 +293,16 @@ class elvetisPacom1 extends Module
         } else {
             echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
         }
+
         // recuperarion du csv depuis le ftp //
         if (ftp_get($conn_id, $local_file, $remote_file . '/' . $ftp_file, FTP_BINARY)) {
             echo "Le fichier $local_file a été écrit avec succès\n";
         } else {
             echo "Il y a un problème\n";
         }
-        ftp_close($conn_id);
+        ftp_close($conn_id);*/
 
+        // on stock les infos du csv dans un tableau
         $row = -1;
         if (($handle = fopen($local_file, "r")) !== FALSE) {
             while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
@@ -302,40 +312,140 @@ class elvetisPacom1 extends Module
                     $arr[$row][$c] = $data[$c];
                 }
             }
+            // ont supprime la premier ligne
             unset($arr[0]);
             fclose($handle);
         }
         echo "<pre>";
         print_r($arr);
         echo "</pre>";
+
+        // ont traite chaque commande dans cette boucle 
         foreach ($arr as $keys => $value) :
-            $all_id = $arr[$keys][0];
-            $order = new Order((int) $all_id);
-            $product = $order->getProducts();
-            $order_shipping = $order->getShipping();
-            $orderCarrier = new OrderCarrier($order->getIdOrderCarrier());
-            $orderCarrier->tracking_number = $arr[$keys][4];
-            $orderCarrier->update();
-            $order->current_state = 5;
-            $order->update();
-            /*foreach ($order_shipping as $key => $value) {
-                $product_carrier = new OrderCarrier($order_shipping[$key]['id_order_carrier']);
-                $wt = $product_carrier->getWsMtbProducts();
-                echo "<pre>";
-                print_r($wt);
-                echo "</pre>";
-            }*/
-            echo "<pre>";
-            print_r($orderCarrier);
-            echo "</pre>";
-            echo "<pre>";
-            print_r($order);
-            echo "</pre>";
+
+            // ont recupere l'id de la commande 
+            $all_id_orders = $arr[$keys][0];
+
+            $order_carrier = new OrderCarrier();
+            $order = new Order($all_id_orders);
+            $products = $order->getProducts();
+            $id_carrier = $order->id_carrier;
+
+            // ont stock les infos de suivi
+            $order_carrier->id_order = $all_id_orders;
+            $order_carrier->id_carrier = $id_carrier;
+            $order_carrier->id_order_invoice = 0;
+            $order_carrier->shipping_cost_tax_excl = 0;
+            $order_carrier->shipping_cost_tax_incl = 0;
+            $order_carrier->tracking_number = $arr[$keys][4];
+            $id_order_carrier = 0;
+
+            // tableau des produits
+            $id_products = array();
+            // tableau de notre requete sql
+            $sql = array();
+
+            // boucle traitant chaque produit
+            foreach ($products as $product) {
+                $product_isbn = $product['isbn'];
+
+                // ont verifie que le produit appartient a elvetis 
+                if ($product_isbn == 1) {
+
+                
+                    // ont stocke les infos du produit
+                    $id_product = (int)$product['product_id'];
+                    $id_product_attribute = (int)$product['product_attribute_id'];
+                    $quantity = $product['product_quantity'];
+
+                    if ($quantity > 0) {
+                        // on verifie si le produit n'est pas deja dans un suivi
+                        $has_no_duplicate = MTB::hasNoDuplicate(
+                            $id_order_carrier,
+                            $all_id_orders,
+                            $products,
+                            array(
+                                'id_product' => $id_product,
+                                'id_product_attribute' => $id_product_attribute,
+                                'quantity' => $quantity
+                            )
+                        );
+
+                        if (!$has_no_duplicate) {
+                            die(json_encode(array(
+                                'success' => 0,
+                                'text' => $this->l('A product is duplicated') . ' (' . $product['product_name'] . ')'
+                            )));
+                        }
+
+                        $sql[] = array(
+                            'id_product' => $id_product,
+                            'id_product_attribute' => $id_product_attribute,
+                            'quantity' => $quantity
+                        );
+                        for ($i = 0; $i < $quantity; $i++) {
+                            $id_products[] = $id_product . ';' . $id_product_attribute;
+                        }
+                    }
+                }
+            }
+            
+            // ont verifie si le suivi contient des produits
+            if (empty($id_products)) {
+                die(json_encode(array(
+                    'success' => 0,
+                    'text' => $this->l('Please add at least one product.')
+                )));
+            }
+
+            // ajout dans la base de données
+            try {
+                $order_carrier->add();
+            } catch (Exception $e) {
+                die(json_encode(array(
+                    'success' => 0,
+                    'text' => $e->getMessage()
+                )));
+            }
+
+            $id_order_carrier = (int)$order_carrier->id;
+
+            foreach ($sql as $query) {
+                $query['id_order_carrier'] = $id_order_carrier;
+                Db::getInstance()->insert('multitrackingbo_products', $query);
+            }
+
+            $order_carrier->weight = MTB::getTotalWeight($id_products);
+
+            try {
+                $order_carrier->update();
+            } catch (Exception $e) {
+                die(json_encode(array(
+                    'success' => 0,
+                    'text' => $e->getMessage()
+                )));
+            }
+            if (!MTB::refreshShippingCost($order, $order_carrier)) {
+                die(json_encode(array(
+                    'success' => 0,
+                    'text' => $this->l('An error has occurred.')
+                )));
+            }
+            $mail = new AdminMultiTrackingBoController();
+            if (Tools::getValue('send_mail')) {
+                if (!$mail->sendInTransitEmail($order_carrier, $order)) {
+                    die(json_encode(array(
+                        'success' => 0,
+                        'text' => $this->l('Failed to send the email.')
+                    )));
+                }
+            }
+
+            json_encode(array(
+                'success' => 1
+            ));
 
         endforeach;
-        echo "<pre>";
-        print_r($product);
-        echo "</pre>";
         die;
     }
 
@@ -348,7 +458,6 @@ class elvetisPacom1 extends Module
         $customer = new Customer($order->id_customer);
         $products = $order->getProducts();
         $adresses = new CustomerAddress($order->id_address_delivery);
-
 
         /* information client */
         $customer_lastname = $customer->lastname;
@@ -373,7 +482,6 @@ class elvetisPacom1 extends Module
         $sale_date = $order->date_add;
 
         /* declaration et ecriture des titres des colonnes pour elvetis */
-
         $elvetis_column_title = array(
             'Nom du client', 'Adresse 1', 'Adresse2', 'Code postal', 'Ville', 'Adresse email',
             'Téléphone 1', 'Téléphone 2', 'Numéro de facture', 'Montant Total HT de la commande', 'Montant Total HT TVA de la commande', 'Montant TTC de la commande', 'Identifiant relais colis',
