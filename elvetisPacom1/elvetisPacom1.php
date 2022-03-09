@@ -151,13 +151,15 @@ class elvetisPacom1 extends Module
         foreach ($contents as $file) :
             $local_path = __DIR__ . '/tmp/';
             $local_file = __DIR__ . '/tmp/' . $file;
+            $local_archive = __DIR__ . '/archiveTracking/' . $file;
             if (str_contains($file, 'stocks')) :
                 ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
 
             elseif (str_contains($file, date('ymd'))) :
+                ftp_get($conn_id, $local_archive, $remote_file . '/' . $file, FTP_BINARY);
                 ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
                 $file = rename($local_file, $local_path . 'EXP_' . date('ymd') . '.csv');
-
+                
             endif;
         endforeach;
         ftp_close($conn_id);
