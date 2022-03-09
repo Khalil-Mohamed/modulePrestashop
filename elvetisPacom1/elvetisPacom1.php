@@ -1,5 +1,5 @@
 <?php
-include_once _PS_MODULE_DIR_.'multitrackingbo/controllers/admin/AdminMultiTrackingBo.php';
+include_once _PS_MODULE_DIR_ . 'multitrackingbo/controllers/admin/AdminMultiTrackingBo.php';
 
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -7,6 +7,7 @@ if (!defined('_PS_VERSION_')) {
 
 class elvetisPacom1 extends Module
 {
+
     public function __construct()
     {
         $this->name = 'elvetispacom1';
@@ -26,9 +27,9 @@ class elvetisPacom1 extends Module
 
         $this->confirmUninstall = $this->l('etes vous sur de vouloir supprimer le module ??');
 
-        if (!Configuration::get('ELVETIS_PACOM1')) {
+        if (!Configuration::get('ELVETIS_PACOM1')) :
             $this->warning = $this->l('Aucun nom trouver');
-        }
+        endif;
     }
 
     // fonction pour installer le module et les hook necessaires 
@@ -97,60 +98,88 @@ class elvetisPacom1 extends Module
         $output = '';
 
         // on execute si le formulaire est valider
-        if (Tools::isSubmit('submit' . $this->name)) {
+        if (Tools::isSubmit('submit' . $this->name)) :
             // on recupere la valeur entrer par l'utilisateur
             $pacom1_config_value = (string) Tools::getValue('PACOM1_CONFIG');
             // on verifie que la valeur est valide
-            if (empty($pacom1_config_value) || !Validate::isGenericName($pacom1_config_value)) {
+            if (empty($pacom1_config_value) || !Validate::isGenericName($pacom1_config_value)) :
                 // erreur si invalide
                 $output = $this->displayError($this->l('Erreur'));
-            } else {
+            else :
                 // si valide, on update et affiche un message de confirmation
                 Configuration::updateValue('PACOM1_CONFIG', $pacom1_config_value);
                 $output = $this->displayConfirmation($this->l('Valeur enregistrer !'));
-            }
-        }
+            endif;
+        endif;
 
         // display any message, then the form
         return $output . $this->displayForm();
     }
 
-    public function ftpGetFile(){
-
+    // fonction pour se connecter au serveur ftp
+    public function ftpConnection()
+    {
         // identifiant de connection ftp
         $ftp_user_name = "pacom1_tsn_ftp";
         $ftp_user_pass = "qf3FXpxM_";
         $ftp_server = "s3.pacom1.com";
         $conn_id = ftp_ssl_connect($ftp_server);
-        $local_file = __DIR__ . '\tmp';
-        $remote_file = "private";
-
         // connection ftp
         $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
         ftp_pasv($conn_id, true);
 
-        if ((!$conn_id) || (!$login_result)) {
+        if ((!$conn_id) || (!$login_result)) :
             echo "Connexion ftp échouer";
             echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
             exit;
-        } else {
+        else :
             echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
-        }
+        endif;
+        return $conn_id;
+    }
+
+    // fonction qui recupere les fichier dans le ftp elvetis
+    public function ftpGetFile()
+    {
+        $local_file = __DIR__ . '\tmp';
+        $remote_file = "private";
+
+        $conn_id = $this->ftpConnection();
 
         $contents = ftp_nlist($conn_id, $remote_file);
-        var_dump($contents);
 
-        foreach ($contents as $file)
-        {
+        foreach ($contents as $file) :
+            $local_path = __DIR__ . '/tmp/';
             $local_file = __DIR__ . '/tmp/' . $file;
-            if (str_contains($file, 'stocks')) {
+            if (str_contains($file, 'stocks')) :
                 ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
-            }
-            if (str_contains($file, date('ymd'))) {
+
+            elseif (str_contains($file, date('ymd'))) :
                 ftp_get($conn_id, $local_file, $remote_file . '/' . $file, FTP_BINARY);
-            }
-        }
+                $file = rename($local_file, $local_path . 'EXP_' . date('ymd') . '.csv');
+
+            endif;
+        endforeach;
         ftp_close($conn_id);
+    }
+
+    // fonction qui stock les données fichier dans un tablleau 
+    public function stockInArray($local_file)
+    {
+        $row = -1;
+        if (($handle = fopen($local_file, "r")) !== FALSE) :
+            while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) :
+                $num = count($data);
+                $row++;
+                for ($c = 0; $c < $num; $c++) :
+                    $arr[$row][$c] = $data[$c];
+                endfor;
+            endwhile;
+            // ont supprime la premier ligne
+            unset($arr[0]);
+            fclose($handle);
+        endif;
+        return $arr;
     }
 
     // fonction pour envoyer la commande via ftp
@@ -160,31 +189,13 @@ class elvetisPacom1 extends Module
         $file = fopen($csv, 'r');
         $remote_file = "private";
 
+        $conn_id = $this->ftpConnection();
 
-        // identifiant de connection ftp
-        $ftp_user_name = "pacom1_tsn_ftp";
-        $ftp_user_pass = "qf3FXpxM_";
-        $ftp_server = "s3.pacom1.com";
-        $remote_file = "private";
-        $conn_id = ftp_ssl_connect($ftp_server);
-
-        // connection ftp
-        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
-        ftp_pasv($conn_id, true);
-
-        // ont verifie la connection
-        if ((!$conn_id) || (!$login_result)) {
-            echo "Connexion ftp échouer";
-            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
-            exit;
-        } else {
-            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
-            if (ftp_fput($conn_id, $remote_file . '/' . $name, $file, FTP_ASCII)) {
-                echo "Chargement avec succès du fichier $file\n";
-            } else {
-                echo "Il y a eu un problème lors du chargement du fichier $file\n";
-            }
-        }
+        if (ftp_fput($conn_id, $remote_file . '/' . $name, $file, FTP_ASCII)) :
+            echo "Chargement avec succès du fichier $file\n";
+        else:
+            echo "Il y a eu un problème lors du chargement du fichier $file\n";
+        endif;
 
         /* fermeture du fichier et de la connexion ftp */
         fclose($file);
@@ -203,17 +214,8 @@ class elvetisPacom1 extends Module
         $stock_file = 'stocks.csv';
         $csvfile = __DIR__ . '/tmp/' . $stock_file;
 
-        $row = -1;
-        if (($handle = fopen($csvfile, "r")) !== FALSE) {
-            while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
-                $num = count($data);
-                $row++;
-                for ($c = 0; $c < $num; $c++) {
-                    $arr[$row][$c] = $data[$c];
-                }
-            }
-            fclose($handle);
-        }
+        $arr = $this->stockInArray($csvfile);
+        var_dump($arr);
 
         /*nous allons verifier dans cette boucle le stock de chaque produit */
         foreach ($arr as $keys => $value) :
@@ -267,58 +269,14 @@ class elvetisPacom1 extends Module
         endforeach;
     }
 
+    // fonction pour gérer le tracking des commandes
     public function elvetisTracking()
     {
         // info du dossier ftp
-        $local_file_name = 'EXP_20220303150622.csv';
+        $local_file_name = 'EXP_' . date('ymd') . '.csv';
         $local_file = __DIR__ . '/tmp/' . $local_file_name;
-        /*$ftp_file = "EXP_20220303150622.csv";
-        $remote_file = "private";
 
-
-        // identifiant de connection ftp
-        $ftp_user_name = "pacom1_tsn_ftp";
-        $ftp_user_pass = "qf3FXpxM_";
-        $ftp_server = "s3.pacom1.com";
-        $conn_id = ftp_ssl_connect($ftp_server);
-
-        // connection ftp
-        $login_result = ftp_login($conn_id, $ftp_user_name, $ftp_user_pass);
-        ftp_pasv($conn_id, true);
-
-        if ((!$conn_id) || (!$login_result)) {
-            echo "Connexion ftp échouer";
-            echo "tentative de connection de  $ftp_server vers l'utilisateur $ftp_user_name";
-            exit;
-        } else {
-            echo "Connecter vers $ftp_server, pour l'utilisateur $ftp_user_name\n";
-        }
-
-        // recuperarion du csv depuis le ftp //
-        if (ftp_get($conn_id, $local_file, $remote_file . '/' . $ftp_file, FTP_BINARY)) {
-            echo "Le fichier $local_file a été écrit avec succès\n";
-        } else {
-            echo "Il y a un problème\n";
-        }
-        ftp_close($conn_id);*/
-
-        // on stock les infos du csv dans un tableau
-        $row = -1;
-        if (($handle = fopen($local_file, "r")) !== FALSE) {
-            while (($data = fgetcsv($handle, 1000, ";")) !== FALSE) {
-                $num = count($data);
-                $row++;
-                for ($c = 0; $c < $num; $c++) {
-                    $arr[$row][$c] = $data[$c];
-                }
-            }
-            // ont supprime la premier ligne
-            unset($arr[0]);
-            fclose($handle);
-        }
-        echo "<pre>";
-        print_r($arr);
-        echo "</pre>";
+        $arr = $this->stockInArray($local_file);
 
         // ont traite chaque commande dans cette boucle 
         foreach ($arr as $keys => $value) :
@@ -346,19 +304,19 @@ class elvetisPacom1 extends Module
             $sql = array();
 
             // boucle traitant chaque produit
-            foreach ($products as $product) {
+            foreach ($products as $product) :
                 $product_isbn = $product['isbn'];
 
                 // ont verifie que le produit appartient a elvetis 
-                if ($product_isbn == 1) {
+                if ($product_isbn == 1) :
 
-                
+
                     // ont stocke les infos du produit
                     $id_product = (int)$product['product_id'];
                     $id_product_attribute = (int)$product['product_attribute_id'];
                     $quantity = $product['product_quantity'];
 
-                    if ($quantity > 0) {
+                    if ($quantity > 0) :
                         // on verifie si le produit n'est pas deja dans un suivi
                         $has_no_duplicate = MTB::hasNoDuplicate(
                             $id_order_carrier,
@@ -371,32 +329,32 @@ class elvetisPacom1 extends Module
                             )
                         );
 
-                        if (!$has_no_duplicate) {
+                        if (!$has_no_duplicate) :
                             die(json_encode(array(
                                 'success' => 0,
                                 'text' => $this->l('A product is duplicated') . ' (' . $product['product_name'] . ')'
                             )));
-                        }
+                        endif;
 
                         $sql[] = array(
                             'id_product' => $id_product,
                             'id_product_attribute' => $id_product_attribute,
                             'quantity' => $quantity
                         );
-                        for ($i = 0; $i < $quantity; $i++) {
+                        for ($i = 0; $i < $quantity; $i++) :
                             $id_products[] = $id_product . ';' . $id_product_attribute;
-                        }
-                    }
-                }
-            }
-            
+                        endfor;
+                    endif;
+                endif;
+            endforeach;
+
             // ont verifie si le suivi contient des produits
-            if (empty($id_products)) {
+            if (empty($id_products)) :
                 die(json_encode(array(
                     'success' => 0,
                     'text' => $this->l('Please add at least one product.')
                 )));
-            }
+            endif;
 
             // ajout dans la base de données
             try {
@@ -410,10 +368,10 @@ class elvetisPacom1 extends Module
 
             $id_order_carrier = (int)$order_carrier->id;
 
-            foreach ($sql as $query) {
+            foreach ($sql as $query) :
                 $query['id_order_carrier'] = $id_order_carrier;
                 Db::getInstance()->insert('multitrackingbo_products', $query);
-            }
+            endforeach;
 
             $order_carrier->weight = MTB::getTotalWeight($id_products);
 
@@ -425,30 +383,32 @@ class elvetisPacom1 extends Module
                     'text' => $e->getMessage()
                 )));
             }
-            if (!MTB::refreshShippingCost($order, $order_carrier)) {
+            if (!MTB::refreshShippingCost($order, $order_carrier)) :
                 die(json_encode(array(
                     'success' => 0,
                     'text' => $this->l('An error has occurred.')
                 )));
-            }
+            endif;
+
             $mail = new AdminMultiTrackingBoController();
-            if (Tools::getValue('send_mail')) {
-                if (!$mail->sendInTransitEmail($order_carrier, $order)) {
+
+            if (Tools::getValue('send_mail')) :
+                if (!$mail->sendInTransitEmail($order_carrier, $order)) :
                     die(json_encode(array(
                         'success' => 0,
                         'text' => $this->l('Failed to send the email.')
                     )));
-                }
-            }
+                endif;
+            endif;
 
             json_encode(array(
                 'success' => 1
             ));
 
         endforeach;
-        die;
     }
 
+    // action de notre module lors d'un paiment accepter
     public function hookactionPaymentConfirmation(array $params)
     {
 
@@ -472,14 +432,12 @@ class elvetisPacom1 extends Module
         $customer_email = $customer->email;
         $customer_phone1 = $adresses->phone;
         $customer_phone2 = $adresses->phone_mobile;
-        $customer_country = $adresses->country;
 
         /* information facture */
         $bills_id = str_pad($id_order, 7, '0', STR_PAD_LEFT);
         $bills_total_HT = round($order->total_paid_tax_excl, 2);
         $bills_total_TVA = round($order->total_paid_tax_incl, 2);
         $bills_total_TTC = round($order->total_paid, 2);
-        $sale_date = $order->date_add;
 
         /* declaration et ecriture des titres des colonnes pour elvetis */
         $elvetis_column_title = array(
@@ -490,7 +448,7 @@ class elvetisPacom1 extends Module
         );
 
         /* boucle permettant de recuperer les produits de la commande */
-        foreach ($products as $product) {
+        foreach ($products as $product) :
 
             /* information produit */
             $product_id = $product['id_product'];
@@ -503,7 +461,7 @@ class elvetisPacom1 extends Module
             $product_isbn = $product['isbn'];
 
             /* la valeur 1 correspond a l'organisme elvetis */
-            if ($product_isbn == 1) {
+            if ($product_isbn == 1) :
                 /* remplissage des infos de la commande dans un tableau temporaire */
                 $elvetis_array_temp = array();
 
@@ -533,21 +491,21 @@ class elvetisPacom1 extends Module
                 $first_keys = array_key_first($elvetis_array_temp);
                 $last_keys = max(array_keys($elvetis_array_temp));
 
-                for ($i = $first_keys; $i <= $last_keys; $i++) {
+                for ($i = $first_keys; $i <= $last_keys; $i++) :
                     if (!isset($elvetis_array_temp[$i])) {
                         $elvetis_array_temp[$i] = "";
                     }
-                }
+                endfor;
 
                 /* ordonner le tableau*/
                 ksort($elvetis_array_temp);
 
                 $elvetis_array_final[] = array_combine($elvetis_column_title, $elvetis_array_temp);
-            }
-        }
+            endif;
+        endforeach;
 
         /* si le tableau elvetis n'est pas vide on ecrit dans un fichier csv */
-        if (!empty($elvetis_array_final)) {
+        if (!empty($elvetis_array_final)) :
 
             /* ecriture dans notre csv */
             $csv_file_name = 'CDE_' . $bills_id . '.csv';
@@ -555,12 +513,10 @@ class elvetisPacom1 extends Module
             $file = fopen($csvfile, 'w');
             fwrite($file, "\xEF\xBB\xBF");
             fputcsv($file, $elvetis_column_title, ";");
-            foreach ($elvetis_array_final as $line => $value) {
+            foreach ($elvetis_array_final as $line => $value) :
                 fputcsv($file, $elvetis_array_final[$line], ";");
-            }
+            endforeach;
             $this->elvetisSendOrder($csvfile, $csv_file_name);
-        }
-        $this->elvetisTracking();
-        die;
+        endif;
     }
 }
