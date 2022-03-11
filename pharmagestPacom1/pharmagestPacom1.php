@@ -26,6 +26,8 @@ class pharmagestPacom1 extends Module
         $this->displayName = $this->l('Gestion erp pharmagest');
         $this->description = $this->l('Gestion erp de la société pharmagest');
 
+        $this->dependencies = array('multitrackingbo');
+        $this->dependencies = array('wkcombinationcustomize');
         $this->confirmUninstall = $this->l('etes vous sur de vouloir supprimer le module ??');
 
         if (!Configuration::get('PHARMAGEST_PACOM1')) {
@@ -55,7 +57,7 @@ class pharmagestPacom1 extends Module
         $form = [
             'form' => [
                 'legend' => [
-                    'title' => $this->l('lien cron : '.$this->cron_url.' '),
+                    'title' => $this->l('lien cron : ' . $this->cron_url . ' '),
                 ],
             ],
         ];
@@ -68,7 +70,7 @@ class pharmagestPacom1 extends Module
     {
         return $this->displayForm();
     }
-    
+
     public function offiConnectRequest($host, $path, $login, $pass, $data)
     {
 
@@ -107,8 +109,27 @@ class pharmagestPacom1 extends Module
         return $resp;
     }
 
-    public function pharmagestStock()
+    public static function getIdByReferenceAttribute($reference)
     {
+        if (empty($reference)) {
+            return 0;
+        }
+
+        if (!Validate::isReference($reference)) {
+            return 0;
+        }
+
+        $query = new DbQuery();
+        $query->select('p.id_product');
+        $query->from('product_attribute', 'p');
+        $query->where('p.reference = \'' . pSQL($reference) . '\'');
+
+        return Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue($query);
+    }
+
+    public function pharmagestStock()
+    {   
+        Module::getInstanceByName('WkCombinationcustomize');
         // paramettre officonnect //
         $type = "STOCK"; // STOCK / VENTE / FACINT / PROMO
         $url = 'https://officonnect.pharmagest.com/';
@@ -133,7 +154,7 @@ class pharmagestPacom1 extends Module
             fclose($fp);
         }
 
-        $json_file_name = 'stock - testss2i.json';
+        $json_file_name = 'stock - ' . $login . '.json';
         $json_file = __DIR__ . '/tmp/' . $json_file_name;
         $stock = json_decode(file_get_contents($json_file), true);
         foreach ($stock as $info_stock => $donnees_stock) {
@@ -146,23 +167,69 @@ class pharmagestPacom1 extends Module
             }
         }
         foreach ($code_produit as $key => $value) {
-            $all_id = Product::getIdByReference($value);
-            if (!empty($all_id)) :
-                $pharmagest_product = new Product($all_id);
-                $reference = $pharmagest_product->reference;
-                if ($value == $reference) :
-                    echo "ok normal";
-                    if (intval($stock_produit[$key]) < $mini_produit[$key]) :
-                        echo "inferieur a pacom1\n";
-                        $pharmagest_product->active = 0;
-                        $pharmagest_product->update();
-                    else :
-                        echo "superieur a pacom1\n";
-                        $pharmagest_product->active = 1;
-                        $pharmagest_product->update();
+            var_dump($value);
+            // je suis dans un produit mere
+            if ($id = Product::getIdByReference($value)) :
+                echo "le produit est un produit mere\n";
+                $pharmagest_product = new Product($id);
+
+                // je verfie la quantité du produit
+                if ((intval($stock_produit[$key]) < $mini_produit[$key] || intval($stock_produit[$key]) == 0 ) && intval($id) > 0) :
+                    echo "quantitté minimum insufisante\n";
+                    $pharmagest_product->active = 0;
+                    $pharmagest_product->update();
+                else :
+                    echo "quantitté minimum suffisante\n";
+                    $pharmagest_product->active = 1;
+                    $pharmagest_product->update();
+                endif;
+
+            // je suis dans un produit fille
+            elseif ($id = $this->getIdByReferenceAttribute($value)) :
+                var_dump($id);
+                echo "le produit est un produit fille\n";
+
+                // je recupere les info du produit en fontion de l'id
+                $product = new Product($id);
+                echo "<pre>";
+                print_r($product);
+                echo "</pre>";
+                $attribute = $product->getAttributeCombinations();
+                $key_tab_atribut = array_search($value, array_column($attribute,"reference"));
+                $id_attribut = $attribute[$key_tab_atribut]['id_product_attribute'];
+
+                echo($value."-> ".$key_tab_atribut);
+                echo "<pre>";
+                print_r($attribute);
+                echo "</pre>";                
+                var_dump($id_attribut);
+                echo(intval($stock_produit[$key]));
+                echo"<br>";
+                echo($mini_produit[$key]);
+                if ((intval($stock_produit[$key]) < $mini_produit[$key] || intval($stock_produit[$key]) == 0 ) && intval($id_attribut) > 0) :
+                    echo "quantitté minimum insufisante\n";
+
+                    // on recupere les info de la declinaison dans la database
+                    $combiData = WkCombinationStatus::getCombinationStatus(
+                        $product->id,
+                        $id_attribut,
+                        $product->id_shop_default
+                    );
+                    var_dump($combiData);
+                    // on verifie si la declinaison se trouve dans la base de données
+                    if (!$combiData) :
+                        $objCombiStatus = new WkCombinationStatus();
+                        $objCombiStatus->id_ps_product = (int) $product->id;
+                        $objCombiStatus->id_ps_product_attribute = (int) $id_attribut;
+                        $objCombiStatus->id_shop = $product->id_shop_default;
+                        $objCombiStatus->save();
                     endif;
+                else :
+                    echo "quantitté minimum suffisante\n";
+                    $enable = WkCombinationStatus::deleteORActiveSinglePsCombination($id_attribut);
                 endif;
             endif;
+            
         }
     }
     public function hookactionPaymentConfirmation(array $params)
@@ -337,24 +404,20 @@ class pharmagestPacom1 extends Module
             $pharmagest_xml = $pharmagest_array_to_xml->prettify()->toXml();
 
             var_dump($pharmagest_xml);
-            $xml_file_name = __DIR__ . '/tmp/test.xml';
-            if (is_writable($xml_file_name)) {
-
-                if (!$fp = fopen($xml_file_name, 'w')) {
-                    echo "Impossible d'ouvrir le fichier ($xml_file_name)\n";
-                    exit;
-                }
-
-                if (fwrite($fp, $pharmagest_xml) === FALSE) {
-                    echo "Impossible d'écrire dans le fichier ($xml_file_name)\n";
-                    exit;
-                }
-                //echo "L'écriture de ($pharmagest_xml) dans le fichier ($xml_file_name) a réussi\n";
-                fclose($fp);
-            } else {
-                echo "Le fichier $xml_file_name n'est pas accessible en écriture.\n";
+            $xml_file = 'test.xml';
+            $xml_file_path = __DIR__ . '/tmp/' . $xml_file;
+            if (!$fp = fopen($xml_file_path, 'w')) {
+                echo "Impossible d'ouvrir le fichier ($xml_file_path)\n";
+                exit;
             }
-            $xml = file_get_contents($xml_file_name);
+
+            if (fwrite($fp, $pharmagest_xml) === FALSE) {
+                echo "Impossible d'écrire dans le fichier ($xml_file_path)\n";
+                exit;
+            }
+            //echo "L'écriture de ($pharmagest_xml) dans le fichier ($xml_file_path) a réussi\n";
+            fclose($fp);
+            $xml = file_get_contents($xml_file_path);
 
             if ($type == "VENTE") {
 

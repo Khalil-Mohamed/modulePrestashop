@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
-<beldemande version="1.6" date="2022-03-02" format="INFACT" json="false">
+<beldemande version="1.6" date="2022-03-11" format="INFACT" json="false">
   <infact>
-    <vente num_pharma="testss2i" numero_vente="0000008">
+    <vente num_pharma="testss2i" numero_vente="0000013">
       <client client_id="2">
         <nom>DOE</nom>
         <prenom>John</prenom>
@@ -17,18 +17,18 @@
         </adresse_facturation>
         <sexe>H</sexe>
       </client>
-      <date_vente>2022-03-02T15:13:05</date_vente>
-      <montant_port_ht>13.45</montant_port_ht>
+      <date_vente>2022-03-11T15:54:58</date_vente>
+      <montant_port_ht>12.4</montant_port_ht>
       <tauxtva_port>20</tauxtva_port>
-      <total_ttc>80.69</total_ttc>
+      <total_ttc>74.4</total_ttc>
       <exoneration_tva>0</exoneration_tva>
       <lignevente numero_lignevente="1">
-        <codeproduit>demo_5</codeproduit>
-        <designation_produit><![CDATA[Affiche encadrée The adventure begins (Dimension : 40x60cm)]]></designation_produit>
-        <quantite>1</quantite>
-        <prix_brut>29</prix_brut>
+        <codeproduit>0000030079915</codeproduit>
+        <designation_produit><![CDATA[pharmagest_simple_1]]></designation_produit>
+        <quantite>7</quantite>
+        <prix_brut>5</prix_brut>
         <remise>0</remise>
-        <prix_net>34.8</prix_net>
+        <prix_net>6</prix_net>
         <tauxtva>20</tauxtva>
       </lignevente>
     </vente>

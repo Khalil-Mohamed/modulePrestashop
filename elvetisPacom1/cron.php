@@ -6,5 +6,7 @@ if (substr(Tools::encrypt('elvetisPacom1/cron'), 0, 10) != Tools::getValue('toke
     die('Bad token');
 else :
     $elevtis_module = new elvetispacom1();
-    $elvetis = $elevtis_module->elvetisStock();
+    $ftp = $elevtis_module->ftpGetFile();
+    $stock = $elevtis_module->elvetisStock();
+    $tracking = $elevtis_module->elvetisTracking();
 endif;
